@@ -1,0 +1,23 @@
+version: 0.2
+
+phases:
+  install:
+    runtime-versions:
+      python: 3.12
+    commands:
+      - python -m pip install --upgrade pip
+      - pip install -r requirements.txt
+  build:
+    commands:
+      - python -m unittest discover -s tests -v
+
+artifacts:
+  files:
+    - '**/*'
+  exclude-paths:
+    - '.git/**/*'
+    - '.venv/**/*'
+    - 'instance/**/*'
+    - 'data/**/*'
+    - '**/__pycache__/**/*'
+    - '**/*.pyc'

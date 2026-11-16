@@ -1,0 +1,10 @@
+services:
+  document-app:
+    build: .
+    ports:
+      - "5000:5000"
+    environment:
+      DATABASE_PATH: /app/data/jobs.sqlite
+      UPLOAD_FOLDER: /app/data/uploads
+    volumes:
+      - ./data:/app/data
