@@ -1,0 +1,139 @@
+name: Test, Build, and Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-build-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies and security scanner
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pip-audit
+
+      - name: Run unit tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Scan dependencies for known vulnerabilities
+        run: pip-audit -r requirements.txt
+
+      - name: Package application
+        run: |
+          mkdir -p dist
+          zip -r dist/document-processing-app-${GITHUB_SHA}.zip \
+            application.py Procfile requirements.txt document_app
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6.3.0
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Upload build artifact to S3
+        run: |
+          aws s3 cp "dist/document-processing-app-${GITHUB_SHA}.zip" \
+            "s3://${{ vars.S3_BUCKET }}/builds/${GITHUB_SHA}.zip"
+          aws s3 cp "dist/document-processing-app-${GITHUB_SHA}.zip" \
+            "s3://${{ vars.S3_BUCKET }}/builds/latest.zip"
+
+      - name: Deploy the uploaded build to EC2 through Systems Manager
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          EC2_INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
+          S3_BUCKET: ${{ vars.S3_BUCKET }}
+          BUILD_SHA: ${{ github.sha }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          deploy_script = f'''set -euo pipefail
+          BUILD_SHA={json.dumps(os.environ["BUILD_SHA"])}
+          S3_BUCKET={json.dumps(os.environ["S3_BUCKET"])}
+          APP_ROOT=/opt/document-processing-app
+          RELEASE_DIR="$APP_ROOT/releases/$BUILD_SHA"
+          mkdir -p "$RELEASE_DIR"
+          aws s3 cp "s3://${S3_BUCKET}/builds/${BUILD_SHA}.zip" /tmp/document-processing-app.zip
+          unzip -oq /tmp/document-processing-app.zip -d "$RELEASE_DIR"
+          "$APP_ROOT/venv/bin/pip" install -r "$RELEASE_DIR/requirements.txt"
+          chown -R ec2-user:ec2-user "$RELEASE_DIR"
+          ln -sfn "$RELEASE_DIR" "$APP_ROOT/current.next"
+          if [ -d "$APP_ROOT/current" ] && [ ! -L "$APP_ROOT/current" ]; then
+            mv "$APP_ROOT/current" "$APP_ROOT/current.initial"
+          fi
+          mv -Tf "$APP_ROOT/current.next" "$APP_ROOT/current"
+          systemctl enable document-processing-app
+          systemctl restart document-processing-app
+          for attempt in $(seq 1 20); do
+            if curl --fail --silent http://127.0.0.1:8000/health; then
+              echo
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "Health check failed after deployment" >&2
+          systemctl status document-processing-app --no-pager >&2 || true
+          exit 1'''
+
+          Path("ssm-parameters.json").write_text(
+              json.dumps({"commands": [deploy_script]}), encoding="utf-8"
+          )
+          import subprocess
+          import time
+
+          command_id = subprocess.check_output(
+              [
+                  "aws", "ssm", "send-command",
+                  "--instance-ids", os.environ["EC2_INSTANCE_ID"],
+                  "--document-name", "AWS-RunShellScript",
+                  "--parameters", "file://ssm-parameters.json",
+                  "--query", "Command.CommandId", "--output", "text",
+              ],
+              text=True,
+          ).strip()
+          if not command_id:
+              raise SystemExit("Could not start the EC2 deployment command")
+          print(f"SSM deployment command: {command_id}", flush=True)
+
+          for _ in range(60):
+              result = subprocess.run(
+                  [
+                      "aws", "ssm", "get-command-invocation",
+                      "--command-id", command_id,
+                      "--instance-id", os.environ["EC2_INSTANCE_ID"],
+                      "--region", os.environ["AWS_REGION"],
+                      "--output", "json",
+                  ],
+                  capture_output=True, text=True,
+              )
+              if result.returncode == 0:
+                  invocation = json.loads(result.stdout)
+                  status = invocation.get("Status", "Unknown")
+                  if status in {"Success", "Failed", "Cancelled", "TimedOut", "Cancelling"}:
+                      print(invocation.get("StandardOutputContent", ""))
+                      if invocation.get("StandardErrorContent"):
+                          print(invocation["StandardErrorContent"])
+                      if status != "Success":
+                          raise SystemExit(f"EC2 deployment ended with status: {status}")
+                      print("EC2 deployment and health check succeeded")
+                      break
+              time.sleep(5)
+          else:
+              raise SystemExit("Timed out waiting for the EC2 deployment command")
+          PY
