@@ -69,7 +69,7 @@ jobs:
           APP_ROOT=/opt/document-processing-app
           RELEASE_DIR="$APP_ROOT/releases/$BUILD_SHA"
           mkdir -p "$RELEASE_DIR"
-          aws s3 cp "s3://${S3_BUCKET}/builds/${BUILD_SHA}.zip" /tmp/document-processing-app.zip
+          aws s3 cp "s3://$S3_BUCKET/builds/$BUILD_SHA.zip" /tmp/document-processing-app.zip
           unzip -oq /tmp/document-processing-app.zip -d "$RELEASE_DIR"
           "$APP_ROOT/venv/bin/pip" install -r "$RELEASE_DIR/requirements.txt"
           chown -R ec2-user:ec2-user "$RELEASE_DIR"
