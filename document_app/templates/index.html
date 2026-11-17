@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Document Processing App</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <main class="page">
+    <header class="hero">
+      <p class="eyebrow">DEVOPS · THREE-LAYER APP</p>
+      <h1>Document Processing<br>and Status Tracking</h1>
+      <p class="intro">Upload a PDF or image. We’ll check its format and show you the result.</p>
+      <p class="release-badge">CI/CD DEMO · VERSION 1</p>
+    </header>
+
+    <section class="panel" aria-labelledby="upload-title">
+      <h2 id="upload-title">Upload a document</h2>
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          {% for category, message in messages %}
+            <p class="notice {{ category }}" role="alert">{{ message }}</p>
+          {% endfor %}
+        {% endif %}
+      {% endwith %}
+      <form action="{{ url_for('main.upload') }}" method="post" enctype="multipart/form-data">
+        <label for="document">Choose a PDF, PNG, or JPEG (maximum 10 MB)</label>
+        <input id="document" name="document" type="file" accept=".pdf,.png,.jpg,.jpeg" required>
+        <button class="primary-button" type="submit">Upload and check</button>
+      </form>
+    </section>
+
+    <section class="panel" aria-labelledby="jobs-title">
+      <div class="section-heading">
+        <h2 id="jobs-title">Recent uploads</h2>
+        <span class="muted">Latest 20 jobs</span>
+      </div>
+      {% if jobs %}
+        <div class="job-list">
+          {% for job in jobs %}
+            <a class="job-row" href="{{ url_for('main.job_detail', job_id=job.job_id) }}">
+              <span>
+                <strong>{{ job.original_name }}</strong>
+                <small>Job {{ job.job_id }} · {{ job.created_at|replace('T', ' ') }} UTC</small>
+              </span>
+              <span class="status status-{{ job.status|lower }}">{{ job.status }}</span>
+            </a>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="muted">No documents uploaded yet. Your jobs will appear here.</p>
+      {% endif %}
+    </section>
+
+    <footer>Files stay in this demo’s local data folder. Use sample documents for testing.</footer>
+  </main>
+</body>
+</html>

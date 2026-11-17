@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Job {{ job.job_id }} · Document Processing</title>
+  {% if job.status in ["Queued", "Processing"] %}
+    <meta http-equiv="refresh" content="2">
+  {% endif %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <main class="page">
+    <a class="back-link" href="{{ url_for('main.index') }}">← Back to uploads</a>
+    <section class="panel result-panel">
+      <p class="eyebrow">DOCUMENT JOB</p>
+      <h1>{{ job.original_name }}</h1>
+      <p class="job-id">Job ID: {{ job.job_id }}</p>
+      <p class="status status-{{ job.status|lower }}">{{ job.status }}</p>
+
+      {% if job.status in ["Queued", "Processing"] %}
+        <p class="intro">Your file is being checked. This page refreshes automatically.</p>
+      {% elif job.status == "Complete" %}
+        <h2>Check complete</h2>
+        <p>{{ job.result.message }}</p>
+        <dl class="details">
+          <div><dt>File type</dt><dd>{{ job.result.file_type }}</dd></div>
+          <div><dt>File size</dt><dd>{{ job.result.file_size_bytes }} bytes</dd></div>
+          <div><dt>SHA-256</dt><dd class="hash">{{ job.result.sha256 }}</dd></div>
+        </dl>
+        <a class="primary-button inline-button" href="{{ url_for('main.download', job_id=job.job_id) }}">Download original file</a>
+      {% elif job.status == "Failed" %}
+        <h2>Could not process this file</h2>
+        <p class="notice error">{{ job.error_message }}</p>
+        <p class="muted">Check that the file type matches its contents, then upload it again.</p>
+      {% endif %}
+      <p class="muted">Last updated: {{ job.updated_at|replace('T', ' ') }} UTC</p>
+    </section>
+  </main>
+</body>
+</html>
